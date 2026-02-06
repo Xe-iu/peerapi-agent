@@ -361,7 +361,7 @@ func configureBird(session *BgpSession) error {
 	}
 	defer outFile.Close()
 
-	sessionName := fmt.Sprintf("DN42_%d_%s", session.ASN, session.Interface)
+	sessionName := generateSessionName(session)
 
 	if mpBGP {
 		if err := generateMPBGPConfig(outFile, session, sessionName, extendedNexthop, ifBwCommunity, ifSecCommunity); err != nil {
@@ -749,4 +749,75 @@ func nextHopFallbackKey(session *BgpSession) string {
 		return session.Interface
 	}
 	return "peer-probe-route"
+}
+
+// generateSessionName generates a session name based on AS name from whois,
+// or falls back to the original naming convention if whois lookup fails
+func generateSessionName(session *BgpSession) string {
+	// Try to get AS name from whois
+	asName := queryWhoisASName(session.ASN)
+	if asName != "" {
+		// Process as-name: remove punctuation except underscores
+		processedName := removePunctuationExceptUnderscores(asName)
+
+		// Check if ASN is a 10-digit number starting with 42424 or 42012
+		asnStr := fmt.Sprintf("%d", session.ASN)
+		is10DigitASN := len(asnStr) == 10
+		startsWithPrefix := strings.HasPrefix(asnStr, "42424") || strings.HasPrefix(asnStr, "42012")
+
+		var asnPart string
+		if is10DigitASN && startsWithPrefix {
+			// Use last 5 digits of ASN
+			asnLast5 := fmt.Sprintf("%05d", session.ASN%100000)
+			asnPart = asnLast5
+		} else {
+			// Use full ASN
+			asnPart = asnStr
+		}
+
+		// Return formatted name: dn42_{processedName}_{asnPart}
+		return fmt.Sprintf("dn42_%s_%s", processedName, asnPart)
+	}
+
+	// Fallback to original naming convention
+	return fmt.Sprintf("DN42_%d_%s", session.ASN, session.Interface)
+}
+
+// queryWhoisASName queries whois.burble.dn42 to get the as-name for an ASN
+func queryWhoisASName(asn uint) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "whois", "-h", "whois.burble.dn42", fmt.Sprintf("AS%d", asn))
+	output, err := cmd.Output()
+	if err != nil {
+		log.Printf("Warning: whois query failed for AS%d: %v", asn, err)
+		return ""
+	}
+
+	// Parse the output to find as-name field
+	for _, line := range strings.Split(string(output), "\n") {
+		trimmedLine := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmedLine, "as-name:") {
+			parts := strings.SplitN(trimmedLine, ":", 2)
+			if len(parts) == 2 {
+				asName := strings.TrimSpace(parts[1])
+				return asName
+			}
+		}
+	}
+
+	return ""
+}
+
+// removePunctuationExceptUnderscores removes all punctuation from a string except underscores
+func removePunctuationExceptUnderscores(s string) string {
+	var result strings.Builder
+	for _, r := range s {
+		// Keep alphanumeric characters and underscores
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
+			result.WriteRune(r)
+		}
+	}
+	return result.String()
 }
