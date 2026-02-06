@@ -6,8 +6,8 @@ After=bird.service
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/data/peerapi-agent/
-ExecStart=/data/peerapi-agent/peerapi-agent -c /data/peerapi-agent/config.json
+WorkingDirectory=/opt/peerapi-agent/
+ExecStart=/opt/peerapi-agent/peerapi-agent -c /opt/peerapi-agent/config.json
 Restart=always
 RestartSec=10s
 
